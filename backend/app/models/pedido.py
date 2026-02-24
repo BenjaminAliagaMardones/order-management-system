@@ -55,7 +55,7 @@ class Pedido(Base):
         comment="FK al cliente que realizó el pedido",
     )
     estado = Column(
-        Enum(EstadoPedido, name="estado_pedido_enum", create_type=True),
+        Enum(EstadoPedido, name="estado_pedido_enum", create_type=False),
         nullable=False,
         default=EstadoPedido.PENDIENTE,
         comment="Estado actual del pedido",
