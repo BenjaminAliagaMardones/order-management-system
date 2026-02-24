@@ -1,0 +1,51 @@
+# ============================================================
+#  .gitignore – Order Management System
+# ============================================================
+
+# --- Variables de entorno (NUNCA subir al repo) -------------
+.env
+.env.local
+.env.production
+.env.staging
+# .env.example SÍ se versiona (plantilla pública sin valores reales)
+
+# --- Python -------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# --- Node / Frontend ----------------------------------------
+node_modules/
+dist/
+.next/
+.nuxt/
+*.local
+
+# --- Editores -----------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*.DS_Store
+Thumbs.db
+
+# --- Docker -------------------------------------------------
+*.log
