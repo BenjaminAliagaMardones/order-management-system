@@ -118,8 +118,9 @@ def crear_pedido(db: Session, datos: PedidoCreate) -> Pedido:
     pedido.total_clp = total_clp
 
     db.flush()
-    db.refresh(pedido)
-    return pedido
+    # Re-query con joinedload para que los detalles estén cargados antes
+    # de que Pydantic intente serializarlos (evita DetachedInstanceError)
+    return _get_or_404(db, pedido.id)
 
 
 def obtener_pedido(db: Session, pedido_id: UUID) -> Pedido:
@@ -187,7 +188,7 @@ def actualizar_estado_pedido(
 
     pedido.estado = datos.estado
     db.flush()
-    return pedido
+    return _get_or_404(db, pedido_id)
 
 
 def eliminar_pedido(db: Session, pedido_id: UUID) -> None:
