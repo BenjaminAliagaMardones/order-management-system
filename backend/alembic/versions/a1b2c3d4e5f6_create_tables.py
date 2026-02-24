@@ -19,8 +19,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # ── Enum estado_pedido ──────────────────────────────────────────────────
-    op.execute("CREATE TYPE estado_pedido_enum AS ENUM ('pendiente', 'en_bodega', 'enviado')")
+    # ── Enum estado_pedido (idempotente: no falla si ya existe) ─────────────
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE estado_pedido_enum AS ENUM ('pendiente', 'en_bodega', 'enviado');
+        EXCEPTION
+            WHEN duplicate_object THEN NULL;
+        END $$;
+    """)
 
     # ── Tabla clientes ──────────────────────────────────────────────────────
     op.create_table(
@@ -35,11 +41,19 @@ def upgrade() -> None:
     op.create_index('ix_clientes_telefono', 'clientes', ['telefono'])
 
     # ── Tabla pedidos ───────────────────────────────────────────────────────
+    # Usamos postgresql.ENUM con create_type=False para que SQLAlchemy
+    # NO intente crear el tipo (ya lo creamos arriba con DO $$)
+    estado_type = postgresql.ENUM(
+        'pendiente', 'en_bodega', 'enviado',
+        name='estado_pedido_enum',
+        create_type=False,
+    )
     op.create_table(
         'pedidos',
         sa.Column('id',          postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column('cliente_id',  postgresql.UUID(as_uuid=True), sa.ForeignKey('clientes.id', ondelete='RESTRICT'), nullable=False),
-        sa.Column('estado',      sa.Enum('pendiente', 'en_bodega', 'enviado', name='estado_pedido_enum', create_type=False), nullable=False),
+        sa.Column('cliente_id',  postgresql.UUID(as_uuid=True),
+                  sa.ForeignKey('clientes.id', ondelete='RESTRICT'), nullable=False),
+        sa.Column('estado',      estado_type, nullable=False),
         sa.Column('subtotal_usd', sa.Numeric(precision=12, scale=2), nullable=False),
         sa.Column('total_usd',    sa.Numeric(precision=12, scale=2), nullable=False),
         sa.Column('valor_dolar',  sa.Numeric(precision=10, scale=2), nullable=False),
@@ -53,18 +67,19 @@ def upgrade() -> None:
     # ── Tabla detalles_pedido ───────────────────────────────────────────────
     op.create_table(
         'detalles_pedido',
-        sa.Column('id',                   postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column('pedido_id',            postgresql.UUID(as_uuid=True), sa.ForeignKey('pedidos.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('nombre_producto',      sa.String(255),               nullable=False),
-        sa.Column('cantidad',             sa.Integer(),                 nullable=False),
-        sa.Column('precio_base_usd',      sa.Numeric(precision=12, scale=4), nullable=False),
-        sa.Column('porcentaje_tax',       sa.Numeric(precision=5,  scale=2), nullable=False),
-        sa.Column('porcentaje_comision',  sa.Numeric(precision=5,  scale=2), nullable=False),
-        sa.Column('tax_usd',              sa.Numeric(precision=12, scale=4), nullable=False),
-        sa.Column('comision_usd',         sa.Numeric(precision=12, scale=4), nullable=False),
-        sa.Column('precio_final_usd',     sa.Numeric(precision=12, scale=4), nullable=False),
-        sa.Column('subtotal_usd',         sa.Numeric(precision=12, scale=2), nullable=False),
-        sa.Column('created_at',           sa.DateTime(timezone=True),        nullable=False),
+        sa.Column('id',                  postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column('pedido_id',           postgresql.UUID(as_uuid=True),
+                  sa.ForeignKey('pedidos.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('nombre_producto',     sa.String(255),               nullable=False),
+        sa.Column('cantidad',            sa.Integer(),                 nullable=False),
+        sa.Column('precio_base_usd',     sa.Numeric(precision=12, scale=4), nullable=False),
+        sa.Column('porcentaje_tax',      sa.Numeric(precision=5,  scale=2), nullable=False),
+        sa.Column('porcentaje_comision', sa.Numeric(precision=5,  scale=2), nullable=False),
+        sa.Column('tax_usd',             sa.Numeric(precision=12, scale=4), nullable=False),
+        sa.Column('comision_usd',        sa.Numeric(precision=12, scale=4), nullable=False),
+        sa.Column('precio_final_usd',    sa.Numeric(precision=12, scale=4), nullable=False),
+        sa.Column('subtotal_usd',        sa.Numeric(precision=12, scale=2), nullable=False),
+        sa.Column('created_at',          sa.DateTime(timezone=True),        nullable=False),
     )
     op.create_index('ix_detalles_pedido_pedido_id',       'detalles_pedido', ['pedido_id'])
     op.create_index('ix_detalles_pedido_nombre_producto', 'detalles_pedido', ['nombre_producto'])
@@ -74,4 +89,4 @@ def downgrade() -> None:
     op.drop_table('detalles_pedido')
     op.drop_table('pedidos')
     op.drop_table('clientes')
-    op.execute("DROP TYPE estado_pedido_enum")
+    op.execute("DROP TYPE IF EXISTS estado_pedido_enum")
