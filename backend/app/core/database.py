@@ -27,7 +27,7 @@ engine = create_engine(
     # si el proyecto crece a producción.
     pool_size=5,
     max_overflow=10,
-    echo=False,  # True en desarrollo para ver las queries SQL en consola
+    echo=True,   # TEMPORAL: ver queries SQL en Render logs para debug
 )
 
 # ---------------------------------------------------------------------------

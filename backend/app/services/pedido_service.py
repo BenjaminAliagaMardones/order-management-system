@@ -8,6 +8,7 @@ Orquesta la creación de un pedido completo:
   4. Calcula y guarda los totales del pedido.
 """
 
+import uuid
 from uuid import UUID
 
 from sqlalchemy.orm import Session, joinedload
@@ -25,7 +26,7 @@ from app.services.calculadora import calcular_detalle, calcular_totales_pedido
 # ---------------------------------------------------------------------------
 
 def _get_or_404(db: Session, pedido_id: UUID) -> Pedido:
-    """Devuelve el pedido con sus detalles cargados o lanza 404."""
+    """Devuelve el pedido con sus detalles cargados (eager) o lanza 404."""
     pedido = (
         db.query(Pedido)
         .options(joinedload(Pedido.detalles))
@@ -61,27 +62,20 @@ def crear_pedido(db: Session, datos: PedidoCreate) -> Pedido:
 
     Flujo:
       1. Valida que el cliente exista.
-      2. Por cada DetallePedidoCreate → calcula tax, comisión, precio final, subtotal.
-      3. Crea el Pedido con estado=PENDIENTE.
-      4. Adjunta todos los DetallePedido al pedido.
-      5. Calcula subtotal_usd, total_usd y total_clp del pedido.
-      6. Flush (sin commit; el commit lo hace get_db al terminar el request).
+      2. Genera el UUID del pedido manualmente para asignarlo antes del flush.
+      3. Por cada DetallePedidoCreate → calcula tax, comisión, precio final, subtotal.
+      4. Calcula subtotal_usd, total_usd y total_clp del pedido.
+      5. Un único db.flush() al final persiste todo.
+      6. Re-query con joinedload para devolver el objeto completo.
     """
     _validar_cliente(db, datos.cliente_id)
 
-    # --- Crear el pedido base (sin totales aún) ---
-    pedido = Pedido(
-        cliente_id=datos.cliente_id,
-        estado=EstadoPedido.PENDIENTE,
-        valor_dolar=datos.valor_dolar,
-        subtotal_usd=0,
-        total_usd=0,
-        total_clp=0,
-    )
-    db.add(pedido)
-    db.flush()  # genera el UUID del pedido
+    # Generar UUID explícitamente para poder asignarlo a los detalles
+    # antes del flush (evita el primer flush intermedio)
+    pedido_id = uuid.uuid4()
 
-    # --- Crear los detalles con campos calculados ---
+    # --- Calcular detalles ---
+    detalles_orm = []
     subtotales = []
 
     for item in datos.detalles:
@@ -91,36 +85,47 @@ def crear_pedido(db: Session, datos: PedidoCreate) -> Pedido:
             porcentaje_comision=item.porcentaje_comision,
             cantidad=item.cantidad,
         )
-
         detalle = DetallePedido(
-            pedido_id=pedido.id,
+            pedido_id=pedido_id,
             nombre_producto=item.nombre_producto,
             cantidad=item.cantidad,
             precio_base_usd=item.precio_base_usd,
             porcentaje_tax=item.porcentaje_tax,
             porcentaje_comision=item.porcentaje_comision,
-            # campos calculados
             tax_usd=resultado.tax_usd,
             comision_usd=resultado.comision_usd,
             precio_final_usd=resultado.precio_final_usd,
             subtotal_usd=resultado.subtotal_usd,
         )
-        db.add(detalle)
+        detalles_orm.append(detalle)
         subtotales.append(resultado.subtotal_usd)
 
-    # --- Calcular y asignar los totales del pedido ---
+    # --- Calcular totales del pedido ---
     subtotal_usd, total_usd, total_clp = calcular_totales_pedido(
         subtotales_usd=subtotales,
         valor_dolar=datos.valor_dolar,
     )
-    pedido.subtotal_usd = subtotal_usd
-    pedido.total_usd = total_usd
-    pedido.total_clp = total_clp
+
+    # --- Crear el pedido con todos los campos, incluido el ID explícito ---
+    pedido = Pedido(
+        id=pedido_id,
+        cliente_id=datos.cliente_id,
+        estado=EstadoPedido.PENDIENTE,
+        valor_dolar=datos.valor_dolar,
+        subtotal_usd=subtotal_usd,
+        total_usd=total_usd,
+        total_clp=total_clp,
+    )
+
+    # --- Un único flush para todo ---
+    db.add(pedido)
+    for detalle in detalles_orm:
+        db.add(detalle)
 
     db.flush()
-    # Re-query con joinedload para que los detalles estén cargados antes
-    # de que Pydantic intente serializarlos (evita DetachedInstanceError)
-    return _get_or_404(db, pedido.id)
+
+    # Re-query con joinedload para que los detalles estén cargados
+    return _get_or_404(db, pedido_id)
 
 
 def obtener_pedido(db: Session, pedido_id: UUID) -> Pedido:
@@ -137,12 +142,6 @@ def listar_pedidos(
 ) -> list[Pedido]:
     """
     Listado de pedidos con filtros opcionales.
-
-    Args:
-        cliente_id: filtra por cliente.
-        estado:     filtra por estado (pendiente / en_bodega / enviado).
-        skip:       offset de paginación.
-        limit:      máximo de resultados (máx. 200).
     """
     limit = min(limit, 200)
     query = db.query(Pedido).order_by(Pedido.created_at.desc())
@@ -165,12 +164,9 @@ def actualizar_estado_pedido(
 
     Regla de negocio: el estado solo puede avanzar en la secuencia
         pendiente → en_bodega → enviado
-
-    Lanza 422 si se intenta retroceder.
     """
     pedido = _get_or_404(db, pedido_id)
 
-    # Mapa de orden para validar la progresión
     _orden = {
         EstadoPedido.PENDIENTE: 0,
         EstadoPedido.EN_BODEGA: 1,
