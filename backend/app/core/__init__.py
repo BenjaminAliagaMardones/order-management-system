@@ -6,6 +6,7 @@ from .config import (  # noqa: F401
     APP_TITLE,
     APP_VERSION,
     DEBUG,
+    CORS_ORIGINS,
 )
 from .database import (  # noqa: F401
     engine,

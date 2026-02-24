@@ -30,3 +30,11 @@ DATABASE_URL: str = os.environ["DATABASE_URL"]
 APP_TITLE: str = os.getenv("APP_TITLE", "Order Management System")
 APP_VERSION: str = os.getenv("APP_VERSION", "0.1.0")
 DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+
+# ---------------------------------------------------------------------------
+# CORS
+# ---------------------------------------------------------------------------
+# Ejemplo en .env:
+#   CORS_ORIGINS=https://mi-frontend.onrender.com,http://localhost:5173
+_raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+CORS_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]

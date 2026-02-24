@@ -1,6 +1,7 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import APP_TITLE, APP_VERSION, DEBUG
+from app.core.config import APP_TITLE, APP_VERSION, DEBUG, CORS_ORIGINS
 from app.api import router_clientes, router_pedidos
 
 app = FastAPI(
@@ -17,10 +18,21 @@ app = FastAPI(
 )
 
 # ---------------------------------------------------------------------------
+# CORS – permite peticiones desde el frontend (Render / localhost)
+# ---------------------------------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,   # lista de URLs permitidas desde .env
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
 app.include_router(router_clientes, prefix="/api/v1")
-app.include_router(router_pedidos, prefix="/api/v1")
+app.include_router(router_pedidos,  prefix="/api/v1")
 
 
 # ---------------------------------------------------------------------------
